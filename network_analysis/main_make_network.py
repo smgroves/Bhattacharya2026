@@ -53,7 +53,7 @@ def add_connections(G, net_df, thresold_var = None, threshold = 0, parent_node =
 # =============================================================================
 # Make network
 # =============================================================================
-#Instead of using BooleaBayes to make the network with CHIP-seq, we are going to use DIRECT-NET information.
+#Instead of using bobaT to make the network with CHIP-seq, we are going to use DIRECT-NET information.
 DIRECT_NET_INDIR = "./DIRECT-NET-FILES/"
 NETWORK_OUTDIR = './networks/'
 overwrite = True

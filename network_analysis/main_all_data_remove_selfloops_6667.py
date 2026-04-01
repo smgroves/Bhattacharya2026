@@ -4,7 +4,7 @@ import time
 
 import numpy as np
 import seaborn as sns
-import booleabayes as bb
+import bobaT as bb
 import os
 import os.path as op
 import pandas as pd
@@ -359,7 +359,7 @@ if __name__ == "__main__":
             # Create a new directory because it does not exist
             os.makedirs(f"{dir_prefix}/{brcd}/rules")
         if t1:
-            print("Running time-series-adapted BooleaBayes rule fitting...")
+            print("Running time-series-adapted bobaT rule fitting...")
             rules, regulators_dict, strengths, signed_strengths = (
                 bb.tl.get_rules_scvelo(
                     data=data_train_t0,
@@ -370,7 +370,7 @@ if __name__ == "__main__":
                 )
             )
         else:
-            print("Running classic BooleaBayes rule fitting with a single timepoint...")
+            print("Running classic bobaT rule fitting with a single timepoint...")
             rules, regulators_dict, strengths, signed_strengths = bb.tl.get_rules(
                 data=data_train_t0,
                 vertex_dict=vertex_dict,
@@ -612,7 +612,7 @@ if __name__ == "__main__":
 
         # bb.plot.plot_attractors(f'{ATTRACTOR_DIR}/attractors_filtered.txt', save_dir="")
 
-        # added to Booleabayes version > 0.1.9
+        # added to bobaT version > 0.1.9
         def plot_attractors_clustermap(fname, sep=","):
             att = pd.read_table(fname, sep=sep, header=0, index_col=0)
             att = att.transpose()

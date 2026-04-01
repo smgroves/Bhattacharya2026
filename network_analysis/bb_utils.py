@@ -3,7 +3,7 @@ import os
 import resource
 import numpy as np
 from graph_tool import all as gt
-import booleabayes as bb
+import bobaT as bb
 from graph_tool import GraphView
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -522,7 +522,7 @@ def plot_all_random_walks(
         plt.close()
 
 
-# NOTE: This function will be integrated into booleabayes version > 0.1.9
+# NOTE: This function will be integrated into bobaT version > 0.1.9
 def make_jaccard_heatmap(
     fname,
     cmap="viridis",
@@ -583,7 +583,7 @@ def make_jaccard_heatmap(
         plt.show()
 
 
-# NOTE: This function will be integrated into booleabayes version > 0.1.9
+# NOTE: This function will be integrated into bobaT version > 0.1.9
 # function to make a matplotlib color map from a list of strings and the matplotlib default color palette
 def make_color_map(attractors, palette="hls", set_colors=None):
     """
@@ -614,7 +614,7 @@ def make_color_map(attractors, palette="hls", set_colors=None):
     return cmap
 
 
-# NOTE: This function will be integrated into booleabayes version > 0.1.9
+# NOTE: This function will be integrated into bobaT version > 0.1.9
 
 
 def binarized_umap_transform(binarized_data):
@@ -631,7 +631,7 @@ def binarized_umap_transform(binarized_data):
     return umap_embedding, umap
 
 
-# NOTE: This function will be integrated into booleabayes version > 0.1.9
+# NOTE: This function will be integrated into bobaT version > 0.1.9
 
 
 def binarized_data_dict_to_binary_df(binarized_data, nodes):
@@ -657,7 +657,7 @@ def binarized_data_dict_to_binary_df(binarized_data, nodes):
     return df
 
 
-# NOTE: This function will be integrated into booleabayes version > 0.1.9
+# NOTE: This function will be integrated into bobaT version > 0.1.9
 
 
 def _long_random_walk(
@@ -670,7 +670,7 @@ def _long_random_walk(
     off_nodes=[],
 ):
     """
-    Function to perform random walks on a BooleaBayes network out to max_steps
+    Function to perform random walks on a bobaT network out to max_steps
     The only difference with this function and bb.utils.random_walks_until_leave_basin() is that this function doesn't
     require a radius parameter, and will just keep walking until max_steps.
 
@@ -951,7 +951,7 @@ def plot_sklearn_summ_stats(summary_stats, VAL_DIR, fname=""):
     plt.xticks(rotation=45, ha="right")
     plt.xlabel("Model Metric")
     plt.ylabel("Score")
-    plt.title("Metrics for BooleaBayes Rule Fitting across All TFs")
+    plt.title("Metrics for bobaT Rule Fitting across All TFs")
     plt.tight_layout()
     plt.savefig(f"{VAL_DIR}/summary_stats_boxplot{fname}.pdf")
 

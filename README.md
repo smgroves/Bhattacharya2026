@@ -37,7 +37,7 @@ This repository contains analysis code and manuscript materials for the Bhattach
 
 This repository does not include an explicit dependency specification file. Some of the packages used in the notebooks and scripts include:
 
-- Python: `pandas`, `numpy`, `networkx`, `matplotlib`, `seaborn`, `booleabayes`, `graph_tool`, `scikit-learn`, `arboreto`, `json`, `glob`
+- Python: `pandas`, `numpy`, `networkx`, `matplotlib`, `seaborn`, `bobaT`, `graph_tool`, `scikit-learn`, `arboreto`, `json`, `glob`
 - R: `Seurat`, `Signac`, `ggplot2`, `dplyr`, `readxl`, `reshape2`, `tidyverse`, `MuDataSeurat`, `pheatmap`, `effsize`, `EnhancedVolcano`, `msigdbr`, `homologene`, `viridis`, `Hmisc`, `patchwork`, `corrplot`
 
 ## Reproducing the analyses
