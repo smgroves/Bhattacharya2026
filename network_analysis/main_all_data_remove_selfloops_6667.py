@@ -656,7 +656,7 @@ if __name__ == "__main__":
 
         plot_attractors_clustermap(fname=f"{ATTRACTOR_DIR}/attractors_filtered.txt")
 
-        make_jaccard_heatmap(
+        bb.utils.make_jaccard_heatmap(
             f"{ATTRACTOR_DIR}/attractors_filtered.txt",
             cmap="viridis",
             set_color={"Generalist": "lightgrey"},
