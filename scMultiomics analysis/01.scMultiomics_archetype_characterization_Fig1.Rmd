@@ -1,0 +1,739 @@
+---
+title: "scMutiomics: Archetype characterization (Figure 1+ Extended data Figure 2)"
+output: html_document
+date: '2026-03-31'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(Seurat)
+library(Signac)
+library(ggplot2)
+library(RColorBrewer)
+library(dplyr)
+library(readxl)
+library(reshape2)
+library(tidyverse)
+library(MuDataSeurat, lib.loc = "~/R/x86_64-pc-linux-gnu-library/4.3/")
+library(pheatmap)
+library(effsize, lib.loc = "~/R/x86_64-pc-linux-gnu-library/4.3/")
+library(EnhancedVolcano)
+library(msigdbr)
+library(homologene,lib.loc = "~/R/x86_64-pc-linux-gnu-library/4.3/")
+library(effsize,lib.loc = "~/R/x86_64-pc-linux-gnu-library/4.3/")
+
+TKO_final_arc <- readRDS("/oak/stanford/scg/lab_julsage/Debbie/multiome_data/analysis_2/TKO_final_arc.rds")
+DefaultAssay(TKO_final_arc) = "SCT"
+
+TKO_final_arc@meta.data <- TKO_final_arc@meta.data %>%
+  mutate(cell_type = case_when(
+    archaetype == "Generalist" & old.ident %in% c("NE_1", "NE_2", "NE_3", "NE_4", "NE_5", "NE_6", "NE_7", "NE_8", "NE_9", "NE_10") ~ "Generalist NE",
+    archaetype == "Generalist" & old.ident  %in% c("Club cells_1", "Club cells_2", "AT2 cells", "Club cells_3", "Cilliated cells","Endothelial cells")  ~ "Generalist nonNE",
+    TRUE ~ archaetype
+  ))
+
+```
+
+```{r}
+#Multiomics object = TKO_final_arc
+
+Idents(TKO_final_arc) = "cell_type"
+
+#Reassigning identity levels
+TKO_final_arc@active.ident <- factor(TKO_final_arc@active.ident, 
+                            levels=c("Neuroendocrine1", 
+                                     "Neuroendocrine2",
+                                     "Stress", 
+                                     "Intermediate", 
+                                     "nonNE1", 
+                                     "nonNE2", 
+                                     "Generalist NE",
+                                     "Generalist nonNE"
+                                     ))
+
+###Figure 1b: arc-PCA
+ARC_pca =DimPlot(TKO_final_arc, reduction = "harmony_2",pt.size = 0.75, dims = c(1,3), alpha = 0.6, cols = c("#ddd9d8","gray70","#cb76da","#8e403a","#3eab32","#f10c13","#f27a30","#4e8ee6"), order = c("Intermediate","nonNE2","nonNE1","Stress","Neuroendocrine2","Neuroendocrine1", "Generalist NE","Generalist nonNE")) + ggtitle("PCA")
+
+ARC_pca
+
+```
+
+```{r fig.width = 5, fig.height = 5}
+###Extended Data Figure 2a
+Arc_marker_genes <- read_csv("/labs/julsage/Debbie/multiome_data/analysis_2/Arc.marker_genes.csv") #Supplemental Table S1
+
+Arc_marker_genes %>%
+  group_by(cluster) %>%
+  top_n(n = 20, wt = avg_log2FC) -> top20
+
+top20 = subset(top20,!top20$cluster %in% "Generalist")
+
+TKO_sub <- subset(TKO_final_arc, archaetype != "Generalist")
+Idents(TKO_sub) <- "archaetype"
+
+# Drop any residual unused factor levels from the identity slot
+Idents(TKO_sub) <- droplevels(Idents(TKO_sub))
+
+mapal <- colorRampPalette(RColorBrewer::brewer.pal(8, "RdBu"))(256)
+
+DoHeatmap(TKO_sub,
+          features  = top20$gene,
+          raster    = FALSE,
+          disp.min  = -2,
+          disp.max  = 2) +
+  scale_fill_gradientn(colours = rev(mapal)) +
+  theme(text = element_text(size = 7.5)) +
+  NoLegend()
+
+```
+
+```{r fig.width = 6, fig.height = 6}
+#module score calculation and plots
+#NE gene score (Lissa et al.,)
+NE_genes = as.list("Ascl1","Insm1","Chga","Tgln3","Kif5c","Uchl1","Crmp1","Scg3","Syt4","Rtn1", "Myt1","Syp","Kif1a","Tmsb15a","Syn1","Syt11","Tff3","Rundc3a","Chgb","Fam57b","Sh3gl2","Bsn","Sez6","Tmsb15b","Celf3","Grp","Ddc" ,"Ncam1")
+
+TKO_final_arc = AddModuleScore(TKO_final_arc, features = NE_genes, name = "NE_score", ctrl = 25, assay = "SCT")
+
+# Fetch only the required gene set category
+hallmark <- msigdbr(species = "mouse", category = c("H"))
+M5 <- msigdbr(species = "mouse", category = c("C5"))
+
+# Define gene sets
+gene_sets <- list(
+  PS = "HALLMARK_PROTEIN_SECRETION",
+  EMT = "HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION",
+  INFLAM= "HALLMARK_INFLAMMATORY_RESPONSE"
+ )
+gene_sets_2 = list(AP ="GOBP_ANTIGEN_PROCESSING_AND_PRESENTATION_OF_ENDOGENOUS_ANTIGEN",
+                   INFLAM_GOBP = "GOBP_INFLAMMATORY_RESPONSE")
+
+# Function to extract genes for a given gene set
+extract_genes <- function(gs_name) {
+  hallmark %>%
+    filter(gs_name == !!gs_name) %>%
+    pull(gene_symbol)
+}
+
+extract_genes_2 <- function(gs_name) {
+  M5 %>%
+    filter(gs_name == !!gs_name) %>%
+    pull(gene_symbol)
+}
+
+# Extract genes for all gene sets
+gene_lists <- lapply(gene_sets, extract_genes)
+gene_lists_2 <- lapply(gene_sets_2, extract_genes_2)
+
+# Define control parameters
+ctrl_params <- list(PS = 100, EMT = 105, INFLAM = 100)
+ctrl_params_2 <- list(AP = 29, INFLAM_GOBP = 800)
+
+# Add module scores for all gene sets
+for (name in names(gene_sets)) {
+  TKO_final_arc <- AddModuleScore(
+    object = TKO_final_arc,
+    features = list(gene_lists[[name]]),
+    name = paste0(name, "_score"),
+    ctrl = ctrl_params[[name]],
+    assay = "SCT",
+    nbin = 12
+  )
+}
+
+for (name in names(gene_sets_2)) {
+  TKO_final_arc <- AddModuleScore(
+    object = TKO_final_arc,
+    features = list(gene_lists_2[[name]]),
+    name = paste0(name, "_score"),
+    ctrl = ctrl_params_2[[name]],
+    assay = "SCT",
+    slot = "counts",
+    nbin = 12
+  )
+}
+#Yang et al Cell 2016
+###Supplemental table S3
+NFIB_upregulatedGenes <- read_excel("/labs/julsage/Debbie/files/NFIB-upregulatedGenes.xlsx", 
+    col_names = FALSE)
+
+Nfib_targets = list(NFIB_upregulatedGenes$...1)
+TKO_final_arc = AddModuleScore(TKO_final_arc, features = Nfib_targets, name = "Nfib_score", ctrl = 200, assay = "SCT", nbin = 12)
+
+###Extended data Figure 2b
+signatures = c("NE_score1","Nfib_score1","PS_score1","EMT_score1","INFLAM_score1")
+
+P3 = VlnPlot(
+  object = TKO_final_arc,
+  features = signatures,
+  idents = c("Neuroendocrine1", "Neuroendocrine2","Stress","Intermediate","nonNE1","nonNE2"),
+  pt.size = 0.3,fill.by = "ident",
+  stack = TRUE, flip = TRUE, cols = c("#cb76da","#8e403a","#3eab32","#4e8ee6","#f10c13","#f27a30"))+ xlab("") + ylab("") + theme(legend.position = "none")
+
+labels = c("NE score","Nfib targets", "Protein secretion","EMT signature","Inflammation signature")
+
+P3$data$feature= factor(P3$data$feature, 
+                                      levels = signatures, 
+                                      labels = labels)
+
+Module_score_vln = P3+theme(axis.text.x = element_text(angle = 45, size = 10), axis.text.y = element_text(size = 8))
+
+Module_score_vln
+```
+
+```{r fig.width = 4, fig.height = 5}
+###Extended Figure 2c
+Idents(TKO_final_arc) = "cell_type"
+#proportion of cells in each cell cycle phase
+prop_cells = table(Idents(TKO_final_arc), TKO_final_arc$Phase)
+prop_cells = data.frame(prop_cells)
+colnames(prop_cells) = c("Identity","Phase","Number")
+
+prop_cells$Phase <- factor(prop_cells$Phase,
+              levels = c("G1","S","G2M"))
+
+prop_cells$Identity <- factor(prop_cells$Identity,
+              levels = c("Generalist nonNE","nonNE2","nonNE1","Intermediate","Generalist NE","Stress","Neuroendocrine2","Neuroendocrine1"))
+
+cell_prop = ggplot(data=prop_cells, aes(x=Identity, y=Number, fill=Phase)) +
+  geom_bar(stat = "identity", color = "black", position = "fill") +scale_fill_manual(values = c("white","#089045","#ECE70C"))+coord_flip()+
+  theme_bw() + RotatedAxis()+theme(axis.text=element_text(size=10),
+                                        axis.title=element_text(size=12,face="bold")) + xlab("")
+cell_prop
+```
+
+```{r}
+#Murine NE score
+#HES1 negative cells
+###Supplemental table S3
+HES1_low <- read_excel("/labs/julsage/Debbie/files/41467_2022_30416_MOESM4_ESM.xlsx", 
+    sheet = "padj<0.05 log2fold <-1.0")
+HES1_low_sig = subset(HES1_low, HES1_low$log2FoldChange <= -1.5)
+HES1_low_sig = subset(HES1_low_sig, HES1_low_sig$padj < 0.0001)
+
+HES1_low_sig = list(HES1_low_sig$gene_id)
+
+TKO_final_arc = AddModuleScore(TKO_final_arc, features = HES1_low_sig, name = "HES1_low_score", ctrl = 900, assay = "SCT", nbin = 12, slot = "counts")
+
+#Murine nonNE score
+#HES1 postive cells
+HES1_high <- read_excel("/labs/julsage/Debbie/files/41467_2022_30416_MOESM4_ESM.xlsx", 
+    sheet = "padj<0.05 log2fold > 1.0")
+HES1_high_sig = subset(HES1_high, HES1_high$log2FoldChange > 2.5)
+HES1_high_sig = subset(HES1_high_sig, HES1_high_sig$padj < 0.0001)
+
+HES1_high_sig = list(HES1_high_sig$gene_id)
+
+TKO_final_arc = AddModuleScore(TKO_final_arc, features = HES1_high_sig, name = "HES1_high_score", ctrl = 500, assay = "SCT", nbin = 12, slot = "counts")
+
+###Figure 1c
+df <- TKO_final_arc@meta.data %>%
+  filter(!cell_type %in% c("Generalist NE", "Generalist nonNE")) %>%
+  mutate(
+    cell_type = factor(cell_type,
+                       levels = c("Neuroendocrine1","Neuroendocrine2","Stress","Generalist NE",
+                                  "Intermediate","nonNE1","nonNE2","Generalist nonNE")),
+   NE_z = as.numeric(scale(HES1_low_score1)),
+    nonNE_z = as.numeric(scale(HES1_high_score1))
+  )
+
+color_map <- c("Neuroendocrine1" = "#cb76da",
+               "Neuroendocrine2" = "#8e403a",
+               "Stress"          = "#3eab32",
+               "Intermediate"    = "#4e8ee6",
+               "nonNE1"          = "#f10c13",
+               "nonNE2"          = "#f27a30"
+               )
+
+df_other <- df %>% filter(cell_type != "Intermediate")
+df_inter <- df %>% filter(cell_type == "Intermediate")
+
+# ── 3. Plot ───────────────────────────────────────────────────────────────────
+p <- ggplot() +
+  geom_density_2d(data      = df_other,
+                 aes(x     = NE_z,
+                    y     = nonNE_z,
+                     color = cell_type),
+                 linewidth = 1,
+                  alpha     = 0.5,     # ← muted background
+                bins      = 6,        # ← fewer levels = no splitting
+                  adjust    = 1) +    # ← extra smoothing
+  # Intermediate — high alpha, same smoothing
+  geom_density_2d(data      = df_inter,
+                  aes(x     = NE_z,
+                      y     = nonNE_z),
+                  color     = "#4e8ee6",
+                  linewidth = 1,
+                  alpha     = 1.0,      # ← fully opaque
+                  bins      = 5,
+                  adjust    = 1) +
+  
+  geom_point(data  = df_inter,
+             aes(x = NE_z, y = nonNE_z),
+             color = "#4e8ee6",
+             size  = 0.8,
+             alpha = 0.5) +
+  # Reference lines
+  geom_hline(yintercept = 0, linetype = "dashed",
+             color = "black", linewidth = 0.4) +
+  geom_vline(xintercept = 0, linetype = "dashed",
+             color = "black", linewidth = 0.4) +
+  scale_color_manual(values = color_map, name = "Cell type") +
+  labs(
+    x     = "ASCL1 target score (z-scored)",
+    y     = "nonNE score (z-scored)",
+    title = "Cell state distribution across ASCL1 and nonNE axes"
+  ) +
+  theme_classic() +
+  theme(
+    text            = element_text(size = 13),
+    plot.title      = element_text(size = 13, face = "bold"),
+    legend.position = "right"
+  ) +
+  
+  guides(color = guide_legend(override.aes = list(linewidth = 2, alpha = 1)))
+p
+```
+
+```{r fig.width = 12, fig.height = 5}
+###Figure 1d-f
+#nonNE score
+HES1_high =  TKO_final_arc@meta.data %>% 
+  #filter(!cell_type %in% c("Generalist NE", "Generalist nonNE")) %>%
+  mutate(cell_type = factor(cell_type, levels = c("Neuroendocrine1","Neuroendocrine2","Stress","Generalist NE","Intermediate","nonNE1","nonNE2","Generalist nonNE"))) %>%
+  ggplot(aes(x=cell_type, y=HES1_high_score1, fill=cell_type)) +
+  geom_violin(width=0.7, scale = "width") +
+  geom_jitter(size = 0.001) +
+  theme_classic() +
+  scale_fill_manual(values=c("#cb76da","#8e403a","#3eab32","gray50","#4e8ee6","#f10c13","#f27a30","gray70")) +
+  xlab("") +
+  ylab("Activity") +
+  theme(legend.position="none", axis.text.x = element_text(size = 15,  angle = 45,vjust=1, hjust = 1),axis.text.y = element_text(size = 15),axis.title=element_text(size=15,face="bold"))+ ggtitle("nonNE signature")
+
+#NE score
+HES1_low =  TKO_final_arc@meta.data %>% 
+  #filter(!cell_type %in% c("Generalist NE", "Generalist nonNE")) %>%
+  mutate(cell_type = factor(cell_type, levels = c("Neuroendocrine1","Neuroendocrine2","Stress","Generalist NE","Intermediate","nonNE1","nonNE2","Generalist nonNE"))) %>%
+  ggplot(aes(x=cell_type, y=HES1_low_score1, fill=cell_type)) +
+  geom_violin(width=0.7, scale = "width") +
+  geom_jitter(size = 0.001) +
+  theme_classic() +
+  scale_fill_manual(values=c("#cb76da","#8e403a","#3eab32","gray50","#4e8ee6","#f10c13","#f27a30","gray70")) +
+  xlab("") +
+  ylab("Activity") +
+  theme(legend.position="none", axis.text.x = element_text(size = 15,  angle = 45,vjust=1, hjust = 1),axis.text.y = element_text(size = 15),axis.title=element_text(size=15,face="bold"))+ggtitle("NE signature")
+
+AP = TKO_final_arc@meta.data %>% 
+  #filter(!cell_type %in% c("Generalist NE", "Generalist nonNE")) %>%
+  mutate(cell_type = factor(cell_type, levels = c("Neuroendocrine1","Neuroendocrine2","Stress","Generalist NE","Intermediate","nonNE1","nonNE2","Generalist nonNE")))%>%
+  ggplot(aes(x=cell_type, y=AP_score1, fill=cell_type))+
+  geom_violin(width=0.7, scale = "width") +
+  geom_jitter(size = 0.001) +
+  theme_classic() +
+  scale_fill_manual(values=c("#cb76da","#8e403a","#3eab32","gray50","#4e8ee6","#f10c13","#f27a30","gray70")) +
+  xlab("") +
+  ylab("Activity") +
+  theme(legend.position="none", axis.text.x = element_text(size = 15,  angle = 45,vjust=1, hjust = 1),axis.text.y = element_text(size = 15),axis.title=element_text(size=15,face="bold"))+ggtitle("Endogenous Antigen Presentation")
+
+P = HES1_low+HES1_high+AP
+P
+
+#Cliff's delta
+
+score_cols <- c("HES1_low_score1", "HES1_high_score1", "AP_score1")
+group_col  <- "cell_type"
+ref_group  <- "Intermediate"   # <-- reference group for all comparisons
+
+meta   <- TKO_final_arc@meta.data
+groups <- setdiff(unique(meta[[group_col]]), ref_group)  # all groups except Intermediate
+
+# Build pairs: Intermediate vs every other group
+pairs  <- lapply(groups, function(g) c(ref_group, g))
+
+# --- Loop over all scores and all pairs ---
+all_results <- lapply(score_cols, function(score_col) {
+  
+  pair_results <- lapply(pairs, function(pair) {
+    g1 <- na.omit(meta[meta[[group_col]] == pair[1], score_col])
+    g2 <- na.omit(meta[meta[[group_col]] == pair[2], score_col])
+    
+    if (length(g1) < 3 | length(g2) < 3) {
+      message(sprintf("Skipping %s | %s vs %s — insufficient cells (n1=%d, n2=%d)",
+                      score_col, pair[1], pair[2], length(g1), length(g2)))
+      return(NULL)
+    }
+    
+    cd <- cliff.delta(g1, g2)
+    
+    data.frame(
+      Score      = score_col,
+      Group1     = pair[1],
+      Group2     = pair[2],
+      n1         = length(g1),
+      n2         = length(g2),
+      Delta      = round(cd$estimate, 4),
+      CI_lower   = round(cd$conf.int[1], 4),
+      CI_upper   = round(cd$conf.int[2], 4),
+      Magnitude  = as.character(cd$magnitude)
+    )
+  })
+  
+  do.call(rbind, Filter(Negate(is.null), pair_results))
+})
+
+all_results_df <- do.call(rbind, all_results)
+
+# --- Print results grouped by score ---
+for (sc in score_cols) {
+  cat("\n===", sc, "===\n")
+  print(all_results_df[all_results_df$Score == sc, -1], row.names = FALSE)
+}
+
+```
+
+
+```{r}
+###Extended Data 2f
+Intermediate_vs_NE <- FindMarkers(TKO_final_arc, ident.1 = "Intermediate", ident.2 = c("Neuroendocrine1", "Neuroendocrine2"), logfc.threshold = 0, min.pct = 0.02)
+
+keyvals <- ifelse(
+     Intermediate_vs_NE$avg_log2FC < -1.5, 'royalblue',
+       ifelse(Intermediate_vs_NE$avg_log2FC > 1.5, "#b2182b",
+         'black'))
+   keyvals[is.na(keyvals)] <- 'lightgrey'
+   names(keyvals)[keyvals == '#b2182b'] <- 'high'
+   names(keyvals)[keyvals == 'lightgrey'] <- 'mid'
+   names(keyvals)[keyvals == 'royalblue'] <- 'low'
+
+IntvsNE = EnhancedVolcano(Intermediate_vs_NE,
+     lab = rownames(Intermediate_vs_NE),
+     x = 'avg_log2FC',
+     y = 'p_val_adj',
+   FCcutoff = 1.5,
+   pCutoff = 10e-4,
+  pointSize = 2,
+   labSize = 5,
+ selectLab = c('Ncam1','Meis2','Cp',
+    "Cd36",'H2-Ab1','Myc','Cd74','Rest',"Nrxn1","Robo1","H2-K1","H2-D1","Kcnip4","Mecom","Spock1","Cacna2d1","Rorb","Syt7","B2m","Chga","Eya2","Prdm16"),
+     shape = c(6, 4, 2, 11),
+     colCustom = keyvals,
+     colAlpha = 0.5,
+     legendPosition = 'left',
+     legendLabSize = 15,
+     legendIconSize = 5.0,
+    drawConnectors = TRUE,
+     widthConnectors = 1.0,
+     colConnectors = 'black',
+     arrowheads = FALSE,
+    gridlines.major = TRUE,
+     gridlines.minor = FALSE,
+     border = 'partial',
+     borderWidth = 1.5,
+     borderColour = 'black')
+
+```
+
+```{r fig.width = 12, fig.height = 5}
+convertHumanGeneList <- function(x) {
+  homologene(x, inTax = 9606, outTax = 10090)$`10090`
+}
+
+#Nabet 2024, NMF3
+SCLC_NE_I = read_excel("/oak/stanford/scg/lab_julsage/Debbie/files/1-s2.0-S1535610824000151-mmc3.xlsx", 
+     sheet = "NMF3-Others")
+
+SCLC_NE_I_up = subset(SCLC_NE_I, SCLC_NE_I$logFC >= 1.5)
+SCLC_NE_I_up = subset(SCLC_NE_I_up, SCLC_NE_I_up$adj.P.Val <= 0.01)
+
+SCLC_neI_ms = convertHumanGeneList(SCLC_NE_I_up$symbol)
+
+SCLC_neI_ms = list(SCLC_neI_ms)
+
+TKO_final_arc = AddModuleScore(TKO_final_arc, features = SCLC_neI_ms, name = "SCLC_neI_score",assay = "SCT")
+
+#NMF4
+SCLC_nonNE_I = read_excel("/oak/stanford/scg/lab_julsage/Debbie/files/1-s2.0-S1535610824000151-mmc3.xlsx", 
+     sheet = "NMF4-Others")
+
+SCLC_nonNE_I_up = subset(SCLC_nonNE_I, SCLC_nonNE_I$logFC >= 1)
+SCLC_nonNE_I_up = subset(SCLC_nonNE_I_up, SCLC_nonNE_I_up$adj.P.Val <= 0.01)
+
+SCLC_nneI_ms = convertHumanGeneList(SCLC_nonNE_I_up$symbol)
+SCLC_nneI_ms = list(SCLC_nneI_ms)
+
+TKO_final_arc = AddModuleScore(TKO_final_arc, features = SCLC_nneI_ms, name = "SCLC_nneI_score",assay = "SCT")
+
+#NMF2
+SCLC_A = read_excel("/oak/stanford/scg/lab_julsage/Debbie/files/1-s2.0-S1535610824000151-mmc3.xlsx", 
+    sheet = "NMF2-Others")
+
+SCLC_A_up = subset(SCLC_A, SCLC_A$logFC >= 1.0)
+SCLC_A_up = subset(SCLC_A_up, SCLC_A_up$adj.P.Val <= 0.01)
+
+SCLC_A_ms = convertHumanGeneList(SCLC_A_up$symbol)
+SCLC_A_ms = list(SCLC_A_ms)
+
+TKO_final_arc = AddModuleScore(TKO_final_arc, features = SCLC_A_ms, name = "SCLC_A_score",assay = "SCT")
+
+#NMF1
+SCLC_N = read_excel("/oak/stanford/scg/lab_julsage/Debbie/files/1-s2.0-S1535610824000151-mmc3.xlsx", 
+    sheet = "NMF1-Others")
+
+SCLC_N_up = subset(SCLC_N, SCLC_N$logFC >= 1.5)
+SCLC_N_up = subset(SCLC_N_up, SCLC_N_up$adj.P.Val <= 0.01)
+
+SCLC_N_ms = convertHumanGeneList(SCLC_N_up$symbol)
+SCLC_N_ms = list(SCLC_N_ms)
+
+TKO_final_arc = AddModuleScore(TKO_final_arc, features = SCLC_N_ms, name = "SCLC_N_score",assay = "SCT")
+
+###Supplemental Table S3
+Nabet_signatures <- list(
+  NMF1  = SCLC_N_ms,
+  NMF2 = SCLC_A_ms,
+  NMF3  = SCLC_neI_ms,
+  NMF4  = SCLC_nneI_ms
+)
+Nabet_signatures <- lapply(Nabet_signatures, function(x) as.character(unlist(x)))
+write.csv(
+  as.data.frame(lapply(Nabet_signatures, `length<-`, max(lengths(Nabet_signatures)))),
+  "/labs/julsage/Debbie/multiome_data/analysis_2/Tables/Nabet_signatures_mouse.csv",
+  row.names = FALSE,
+  na = ""
+)
+###Figure 1g
+NMF3 = TKO_final_arc@meta.data %>% 
+  #filter(!cell_type %in% c("Generalist NE", "Generalist nonNE")) %>%
+  mutate(cell_type = factor(cell_type, levels = c("Neuroendocrine1","Neuroendocrine2","Stress","Generalist NE","Intermediate","nonNE1","nonNE2","Generalist nonNE"))) %>%
+  ggplot(aes(x=cell_type, y=SCLC_neI_score1, fill=cell_type)) +
+  geom_violin(width=0.7, scale = "width") +
+  geom_jitter(size = 0.001) +
+  theme_classic() +
+  scale_fill_manual(values=c("#cb76da","#8e403a","#3eab32","gray50","#4e8ee6","#f10c13","#f27a30","gray70")) +
+  xlab("") +
+  ylab("Activity") +
+  theme(legend.position="none", axis.text.x = element_text(size = 15,  angle = 45,vjust=1, hjust = 1),axis.text.y = element_text(size = 15),axis.title=element_text(size=15,face="bold"))+ ggtitle("hSCLC-Inflamed (Nabet et al.,)")
+
+
+###Extended Data 2i
+SCLC_N = TKO_final_arc@meta.data %>% 
+  #filter(!cell_type %in% c("Generalist NE", "Generalist nonNE")) %>%
+  mutate(cell_type = factor(cell_type, levels = c("Neuroendocrine1","Neuroendocrine2","Stress","Generalist NE","Intermediate","nonNE1","nonNE2","Generalist nonNE")))%>%
+  ggplot(aes(x=cell_type, y=SCLC_N_score1, fill=cell_type))+
+  geom_violin(width=0.7, scale = "width") +
+  geom_jitter(size = 0.001) +
+  theme_classic() +ylim(-0.05,0.2)+
+  scale_fill_manual(values=c("#cb76da","#8e403a","#3eab32","gray50","#4e8ee6","#f10c13","#f27a30","gray70")) +
+  xlab("") +
+  ylab("Activity") +
+  theme(legend.position="none", axis.text.x = element_text(size = 15,  angle = 45,vjust=1, hjust = 1),axis.text.y = element_text(size = 15),axis.title=element_text(size=15,face="bold"))+ ggtitle("SCLC-N (Nabet et al.,)")
+
+###Extended Data 2h
+SCLC_A = TKO_final_arc@meta.data %>% 
+  #filter(!cell_type %in% c("Generalist NE", "Generalist nonNE")) %>%
+  mutate(cell_type = factor(cell_type, levels = c("Neuroendocrine1","Neuroendocrine2","Stress","Generalist NE","Intermediate","nonNE1","nonNE2","Generalist nonNE")))%>%
+  ggplot(aes(x=cell_type, y=SCLC_A_score1, fill=cell_type))+
+  geom_violin(width=0.7, scale = "width") +
+  geom_jitter(size = 0.001) +
+  theme_classic() +
+  scale_fill_manual(values=c("#cb76da","#8e403a","#3eab32","gray50","#4e8ee6","#f10c13","#f27a30","gray70")) +
+  xlab("") +
+  ylab("Activity")+ylim(-0.05,0.25)+
+  theme(legend.position="none", axis.text.x = element_text(size = 15,  angle = 45,vjust=1, hjust = 1),axis.text.y = element_text(size = 15),axis.title=element_text(size=15,face="bold"))+ ggtitle("SCLC-A (Nabet et al.,)")
+
+NMF3+SCLC_A+SCLC_N
+```
+
+```{r fig.width = 12, fig.height = 5}
+#Gay et al 2021
+df <- read_excel("/oak/stanford/scg/lab_julsage/Debbie/files/1-s2.0-S1535610820306620-mmc2.xlsx", 
+                 sheet = "Mean expression of sig genes",
+                 skip = 1)  # Skip the first row since it contains headers
+
+# Set proper column names
+colnames(df) <- c("Gene_Name", "SCLC_N", "SCLC_P", "SCLC_I", "SCLC_A")
+
+# Convert expression columns to numeric (they might be read as character)
+df$SCLC_N <- as.numeric(df$SCLC_N)
+df$SCLC_P <- as.numeric(df$SCLC_P)
+df$SCLC_I <- as.numeric(df$SCLC_I)
+df$SCLC_A <- as.numeric(df$SCLC_A)
+
+# Method 1: Using apply with which.max
+df$Highest_Expression_Subtype <- apply(df[, c("SCLC_N", "SCLC_P", "SCLC_I", "SCLC_A")], 
+                                       1, 
+                                       function(x) {
+                                         subtype_names <- c("SCLC-N", "SCLC-P", "SCLC-I", "SCLC-A")
+                                         subtype_names[which.max(x)]
+                                       })
+
+# Display first few rows to verify
+head(df)
+
+SCLC_I_genes = subset(df, df$Highest_Expression_Subtype %in% "SCLC-I")
+SCLC_N_genes = subset(df, df$Highest_Expression_Subtype %in% "SCLC-N")
+SCLC_A_genes = subset(df, df$Highest_Expression_Subtype %in% "SCLC-A")
+SCLC_P_genes = subset(df, df$Highest_Expression_Subtype %in% "SCLC-P")
+
+SCLC_I_genes = subset(SCLC_I_genes, SCLC_I_genes$SCLC_I >=1)
+SCLC_I_genes$p_i = SCLC_I_genes$SCLC_I - SCLC_I_genes$SCLC_P
+SCLC_I_genes = subset(SCLC_I_genes, SCLC_I_genes$p_i >=0.5)
+
+SCLC_I_ms = convertHumanGeneList(SCLC_I_genes$Gene_Name)
+SCLC_I_ms = list(SCLC_I_ms)
+
+TKO_final_arc = AddModuleScore(TKO_final_arc, features = SCLC_I_ms, name = "SCLC_I_G_score",assay = "SCT")
+SCLC_A_G_ms = convertHumanGeneList(SCLC_A_genes$Gene_Name)
+SCLC_A_G_ms = list(SCLC_A_G_ms)
+
+SCLC_N_G_ms = convertHumanGeneList(SCLC_N_genes$Gene_Name)
+SCLC_N_G_ms = list(SCLC_N_G_ms)
+TKO_final_arc = AddModuleScore(TKO_final_arc, features = SCLC_N_ms, name = "SCLC_N_G_score",assay = "SCT")
+
+SCLC_P_ms = convertHumanGeneList(SCLC_P_genes$Gene_Name)
+SCLC_P_ms = list(SCLC_P_ms)
+
+TKO_final_arc = AddModuleScore(TKO_final_arc, features = SCLC_P_ms, name = "SCLC_P_G_score",assay = "SCT")
+
+###Extended Figure Data 2k
+SCLC_I_G = TKO_final_arc@meta.data %>% 
+  #filter(!cell_type %in% c("Generalist NE", "Generalist nonNE")) %>%
+  mutate(cell_type = factor(cell_type, levels = c("Neuroendocrine1","Neuroendocrine2","Stress","Generalist NE","Intermediate","nonNE1","nonNE2","Generalist nonNE")))%>%
+  ggplot(aes(x=cell_type, y=SCLC_I_G_score1, fill=cell_type))+
+  geom_violin(width=0.7, scale = "width") +
+  geom_jitter(size = 0.001) +
+  theme_classic() +
+  scale_fill_manual(values=c("#cb76da","#8e403a","#3eab32","gray50","#4e8ee6","#f10c13","#f27a30","gray70")) +
+  xlab("") +
+  ylab("Activity") +
+  theme(legend.position="none", axis.text.x = element_text(size = 15,  angle = 45,vjust=1, hjust = 1),axis.text.y = element_text(size = 15),axis.title=element_text(size=15,face="bold"))+ ggtitle("SCLC-I (Gay et al.,)")
+
+###Extended Figure Data 2j
+SCLC_P_G = TKO_final_arc@meta.data %>% 
+  #filter(!cell_type %in% c("Generalist NE", "Generalist nonNE")) %>%
+  mutate(cell_type = factor(cell_type, levels = c("Neuroendocrine1","Neuroendocrine2","Stress","Generalist NE","Intermediate","nonNE1","nonNE2","Generalist nonNE")))%>%
+  ggplot(aes(x=cell_type, y=SCLC_P_G_score1, fill=cell_type))+
+  geom_violin(width=0.7, scale = "width") +
+  geom_jitter(size = 0.001) +
+  theme_classic() +
+  scale_fill_manual(values=c("#cb76da","#8e403a","#3eab32","gray50","#4e8ee6","#f10c13","#f27a30","gray70")) +
+  xlab("") +
+  ylab("Activity") +ylim(-0.05,0.2)+
+  theme(legend.position="none", axis.text.x = element_text(size = 15,  angle = 45,vjust=1, hjust = 1),axis.text.y = element_text(size = 15),axis.title=element_text(size=15,face="bold"))+ ggtitle("SCLC-P (Gay et al.,)")
+
+SCLC_N_G = TKO_final_arc@meta.data %>% 
+  #filter(!cell_type %in% c("Generalist NE", "Generalist nonNE")) %>%
+  mutate(cell_type = factor(cell_type, levels = c("Neuroendocrine1","Neuroendocrine2","Stress","Generalist NE","Intermediate","nonNE1","nonNE2","Generalist nonNE")))%>%
+  ggplot(aes(x=cell_type, y=SCLC_N_G_score1, fill=cell_type))+
+  geom_violin(width=0.7, scale = "width") +
+  geom_jitter(size = 0.001) +
+  theme_classic() +
+  scale_fill_manual(values=c("#cb76da","#8e403a","#3eab32","gray50","#4e8ee6","#f10c13","#f27a30","gray70")) +
+  xlab("") +
+  ylab("Activity") +ylim(-0.05,0.2)+
+  theme(legend.position="none", axis.text.x = element_text(size = 15,  angle = 45,vjust=1, hjust = 1),axis.text.y = element_text(size = 15),axis.title=element_text(size=15,face="bold"))+ ggtitle("SCLC-N (Gay et al.,)")
+
+###Supplementary Table S3
+#Exporting mouse version of Gay signatures
+Gay_signatures <- list(
+  SCLC_A  = SCLC_A_G_ms,
+  SCLC_N = SCLC_N_G_ms,
+  SCLC_I  = SCLC_I_ms,
+  SCLC_P  = SCLC_P_ms
+)
+Gay_signatures <- lapply(Gay_signatures, function(x) as.character(unlist(x)))
+write.csv(
+  as.data.frame(lapply(Gay_signatures, `length<-`, max(lengths(Gay_signatures)))),
+  "/labs/julsage/Debbie/multiome_data/analysis_2/Tables/Gay_signatures_mouse.csv",
+  row.names = FALSE,
+  na = ""
+)
+
+SCLC_I_G+SCLC_P_G+SCLC_N_G
+```
+
+```{r}
+###Figure 1i
+palantir_data <- read_csv("/labs/julsage/Debbie/multiome_data/analysis_2/palantir_data.csv")
+TKO_final_arc$pseudotime = palantir_data$palantir_pseudotime
+plot_df <- data.frame(
+  cell_id     = colnames(TKO_final_arc),
+  pseudotime  = TKO_final_arc$pseudotime,
+  cell_type   = TKO_final_arc$cell_type,
+  NE_score    = TKO_final_arc$HES1_low_score1,      # [,1] converts matrix to vector
+  nonNE_score = TKO_final_arc$HES1_high_score1
+) %>%
+  filter(!is.na(pseudotime)) %>%
+  mutate(is_intermediate = cell_type == "Intermediate")
+
+plot_long <- plot_df %>%
+  pivot_longer(
+    cols      = c(NE_score, nonNE_score),
+    names_to  = "program",
+    values_to = "score"
+  ) %>%
+  mutate(program = recode(program,
+                          "NE_score"    = "NE",
+                          "nonNE_score" = "nonNE"))
+
+program_colors <- c("NE" = "#cb76da", "nonNE" = "#f27a30")
+
+ggplot(plot_long, aes(x = pseudotime, y = score, color = program)) +
+
+  # Orange band first (behind everything)
+  annotate("rect",
+           xmin  = quantile(plot_df$pseudotime[plot_df$is_intermediate], 0.10),
+           xmax  = quantile(plot_df$pseudotime[plot_df$is_intermediate], 0.90),
+           ymin  = -Inf,
+           ymax  = Inf,
+           alpha = 0.08,
+           fill  = "#4e8ee6") +
+
+  # Smoothed trend across all cells
+  geom_smooth(method    = "gam",
+              formula   = y ~ s(x, bs = "cs"),
+              se        = TRUE,
+              alpha     = 0.15,
+              linewidth = 1.2) +
+
+  geom_point(data = filter(plot_df, is_intermediate),
+           aes(x = pseudotime, y = (NE_score + nonNE_score) / 2),
+           color = "#4e8ee6", size = 1.5, alpha = 0.6,
+           shape = 16, inherit.aes = FALSE)+
+
+  scale_color_manual(values = program_colors, name = NULL) +
+
+  labs(
+    x        = "Pseudotime",
+    y        = "Activity score",
+    title    = "NE and nonNE program scores across pseudotime",
+    subtitle = "Dots = Intermediate cells | Band = Intermediate pseudotime range"
+  ) +
+
+  theme_classic(base_size = 14) +
+  theme(
+    legend.position = "top",
+    plot.title      = element_text(face = "bold"),
+    plot.subtitle   = element_text(color = "grey40", size = 10)
+  )
+
+```
+
+```{r fig.width = 4, fig.height = 4}
+###Figure 1j
+DefaultAssay(TKO_final_arc)= "Imputed_counts"
+Idents(TKO_final_arc) <- "cell_type"
+
+# Define an order of cluster identities
+my_levels <- c("Neuroendocrine1", "Neuroendocrine2","Stress","Intermediate","nonNE1","nonNE2")
+
+# Relevel object@ident
+Idents(TKO_final_arc) <- factor(Idents(TKO_final_arc), levels = my_levels)
+
+VlnPlot(
+  object = TKO_final_arc,
+  features = c("Ncam1","Icam1"),
+  idents = c("Neuroendocrine1", "Neuroendocrine2","Stress","Intermediate","nonNE1","nonNE2"),
+  pt.size = 0.3,
+  stack = TRUE, flip = TRUE, fill.by = "ident",cols = c("#cb76da","#8e403a","#3eab32","#4e8ee6","#f10c13","#f27a30"))+ xlab("") + ylab("") + theme(legend.position = "none")
+
+```
