@@ -1,6 +1,6 @@
 import time
 import seaborn as sns
-import booleabayes as bb
+import bobaT as bb
 import os
 from os.path import exists
 import pandas as pd

@@ -3,7 +3,7 @@ import time
 
 import numpy as np
 import seaborn as sns
-import booleabayes as bb
+import bobaT as bb
 from bb_utils import *
 import sys
 from arboreto.algo import grnboost2, genie3
