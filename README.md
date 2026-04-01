@@ -1,6 +1,6 @@
-# Bhattacharya2026
+# Transcriptional networks underlying tumor plasticity in small-cell lung cancer
 
-This repository contains analysis code and manuscript materials for the Bhattacharya et al. study submitted March 2026. The work focuses on single-cell and multi-omics archetype characterization, transcriptional network inference, and comparative analysis of tumor cell states across datasets.
+This repository contains the code used to reproduce the analyses and figures from our study on transcriptional and epigenetic networks underlying tumour plasticity in small-cell lung cancer (SCLC). The project integrates single-cell RNA-seq, single-cell ATAC-seq, spatial proteomics, bulk RNA-seq, and downstream computational analyses to characterize cell-state diversity, lineage plasticity, and regulatory programs in the RPR2 mouse model and related SCLC datasets. The study identifies a previously unrecognized Intermediate state, explores its relationship to NE-to-nonNE transitions, and highlights transcription factor regulators such as RORB that shape SCLC cell fate.
 
 ## Contents
 - `archetype_analysis/`
