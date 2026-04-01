@@ -1,0 +1,159 @@
+---
+title: "RPR2 signature analysis in RPM-RPMA dataset (Figure 2 + Extended Data Figure 5)"
+output: html_document
+date: '2026-03-31'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(Seurat)
+library(ggplot2)
+library(RColorBrewer)
+library(ggsignif)
+library(dplyr)
+library(readxl)
+library(reshape2)
+library(tidyverse)
+library(effsize, lib.loc = "~/R/x86_64-pc-linux-gnu-library/4.3/")
+library(msigdbr)
+library(viridis)
+library(Hmisc)
+library(patchwork)
+library(corrplot)
+
+setwd("/labs/julsage/Debbie/RPM single cell/RPM_organoids/")
+```
+```{r fig.width = 12, fig.height = 4}
+
+RPM_RPMA_07_2025_TBO_CellTag_Seurat_wSigs_FA_dpt_final <- readRDS("/labs/julsage/Debbie/RPM single cell/RPM_organoids/RPM_RPMA_07_2025_TBO_CellTag_Seurat_wSigs_FA_dpt_final.rds")
+
+RPM_RPMA = RPM_RPMA_07_2025_TBO_CellTag_Seurat_wSigs_FA_dpt_final
+Idents(RPM_RPMA) = "Pheno"
+
+#Import RPR2 signatures( Supplementary Table S4)
+arc_1_30 <- read_csv("/labs/julsage/Debbie/multiome_data/analysis_2/arc_1_30.csv")
+arc_2_30 <- read_csv("/labs/julsage/Debbie/multiome_data/analysis_2/arc_2_30.csv")
+arc_3_30 <- read_csv("/labs/julsage/Debbie/multiome_data/analysis_2/arc_3_30.csv")
+arc_4_30 <- read_csv("/labs/julsage/Debbie/multiome_data/analysis_2/arc_4_30.csv")
+arc_5_30 <- read_csv("/labs/julsage/Debbie/multiome_data/analysis_2/arc_5_30.csv")
+arc_6_30 <- read_csv("/labs/julsage/Debbie/multiome_data/analysis_2/arc_6_30.csv")
+
+#Add signature score
+sig_list <- list(
+  Intermediate = arc_1_30$gene,
+  NE1          = arc_5_30$gene,
+  NE2          = arc_6_30$gene,
+  nonNE1       = arc_4_30$gene,
+  nonNE2       = arc_2_30$gene,
+  secretory    = arc_3_30$gene
+)
+
+for (nm in names(sig_list)) {
+  RPM_RPMA <- AddModuleScore(
+    object = RPM_RPMA,
+    features = list(sig_list[[nm]]),
+    name = paste0(nm, "_score"),
+    assay = "RNA"
+  )
+}
+
+###Figure 2b-d
+Genotype = DimPlot(RPM_RPMA, reduction = "umap",group.by = "Genotype", cols = c("#000080", "#E69F00"))
+
+NE1 = FeaturePlot(RPM_RPMA, features ="NE1_score1", min.cutoff = "q20",max.cutoff = "q90", reduction = "umap", order = TRUE)+scale_colour_gradientn(colours = viridis(100, option = "cividis"))+ ggtitle("NE1 signature")
+
+Intermediate = FeaturePlot(RPM_RPMA, features ="Intermediate_score1", min.cutoff = "q20",max.cutoff = "q90", reduction = "umap", order = TRUE)+scale_colour_gradientn(colours = viridis(100, option = "cividis"))+ ggtitle("Intermediate signature")
+
+Genotype+NE1+Intermediate
+```
+
+```{r}
+###Figure 2e
+DotPlot(RPM_RPMA, features = c("NE1_score1","NE2_score1", "secretory_score1","Intermediate_score1","nonNE1_score1","nonNE2_score1"),col.max = 1.5, scale.max = 100, dot.min = 0,dot.scale = 8)+ scale_colour_gradient2(low = "#1B7837FF", mid = "#f7f7f7", high = "#762A83FF")+RotatedAxis()+coord_flip()+xlab("") +ylab("")
+```
+
+```{r fig.width = 8, fig.height = 6}
+# Compute annotation label for two genotypes
+get_cliff_label <- function(data, score_col, geno_col = "Genotype") {
+  genotypes <- levels(factor(data[[geno_col]]))
+  g1 <- data[[score_col]][data[[geno_col]] == genotypes[1]]
+  g2 <- data[[score_col]][data[[geno_col]] == genotypes[2]]
+
+  cd  <- cliff.delta(g1, g2)
+  wx  <- wilcox.test(g1, g2)
+
+  paste0("δ = ", round(cd$estimate, 3),
+         " (", cd$magnitude, ")",
+         "\np = ", formatC(wx$p.value, format = "e", digits = 2))
+}
+
+###Figure 2c-d+Extended Data Figure 5a
+#Violin + boxplot function
+make_violin <- function(data, score_col, y_label,
+                        trim = FALSE,
+                        colors = c("#7C86FF", "#E69F00"),
+                        geno_col = "Genotype") {
+
+  genotypes   <- levels(factor(data[[geno_col]]))
+  annot_label <- get_cliff_label(data, score_col, geno_col)
+  y_max       <- max(data[[score_col]], na.rm = TRUE)
+
+  ggplot(data, aes(x = .data[[geno_col]],
+                   y = .data[[score_col]],
+                   fill = .data[[geno_col]])) +
+    geom_violin(width = 0.7, scale = "width", trim = trim) +
+    geom_boxplot(notch  = TRUE, width = 0.30,
+                 color  = "black", alpha = 0.5,
+                 size   = 0.5, lwd = 0.5) +
+    geom_signif(
+      comparisons      = list(genotypes),
+      annotations      = annot_label,
+      y_position       = y_max * 1.08,   # sit just above the tallest violin
+      tip_length       = 0.02,
+      textsize         = 3.8,
+      vjust            = 0.5
+    ) +
+    scale_fill_manual(values = colors) +
+    scale_y_continuous(expand = expansion(mult = c(0.05, 0.18))) +  # room for bracket
+    theme_classic() +
+    xlab("") +
+    ylab(y_label) +
+    theme(legend.position = "none",
+          text = element_text(size = 15))
+}
+
+meta <- RPM_RPMA@meta.data
+
+NE1       <- make_violin(meta, "NE1_score1",        "NE1 Signature")
+NE2       <- make_violin(meta, "NE2_score1",        "NE2 Signature")
+Secretory <- make_violin(meta, "secretory_score1",  "Secretory Signature")
+nonNE1    <- make_violin(meta, "nonNE1_score1",     "nonNE1 Signature")
+INT       <- make_violin(meta, "Intermediate_score1","Intermediate Signature")
+nonNE2    <- make_violin(meta, "nonNE2_score1",     "nonNE2 Signature", trim = TRUE)
+
+P1 <- NE1 + NE2 + Secretory + nonNE1 + INT + nonNE2 +
+  plot_layout(ncol = 3) +
+  plot_annotation(theme = theme(plot.margin = margin(10, 10, 10, 10)))
+
+P1
+
+
+```
+```{r}
+#Signature correlation plot
+Idents(RPM_RPMA) = "Genotype"
+meta = RPM_RPMA@meta.data
+
+signatures = meta[,c(31:75)]
+signatures = signatures[,-c(4,6:11,13,16:17,22,25,27:38)]
+signatures = as.matrix(signatures)
+
+###Extended Data Figure 2b
+cor_2<-rcorr(signatures)
+cor_2[["P"]][!is.finite(cor_2[["P"]])] <- 0
+corrplot( cor_2$r, order="AOE", tl.col = "black", method = 'square',
+         p.mat = cor_2$P, sig.level = 0.01, insig = "blank", col = rev(COL2('PuOr', 20)), diag = FALSE)
+
+```
+
+
