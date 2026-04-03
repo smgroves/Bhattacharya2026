@@ -1,0 +1,780 @@
+---
+title: "scMutiomics: ATAC-seq analysis"
+output: html_document
+date: "2026-03-31"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(Seurat)
+library(Signac)
+library(ggplot2)
+library(RColorBrewer)
+library(dplyr)
+library(readxl)
+library(reshape2)
+library(tidyverse)
+library(MuDataSeurat, lib.loc = "~/R/x86_64-pc-linux-gnu-library/4.3/")
+library(ComplexHeatmap)
+library(effsize,lib.loc = "~/R/x86_64-pc-linux-gnu-library/4.3/")
+library(colorRamp2)
+library(Hmisc)
+library(corrplot)
+
+TKO_final_arc <- readRDS("/oak/stanford/scg/lab_julsage/Debbie/multiome_data/analysis_2/TKO_final_arc.rds")
+
+# Assuming your data frame is called 'df'
+TKO_final_arc@meta.data <- TKO_final_arc@meta.data %>%
+  mutate(cell_type = case_when(
+    archaetype == "Generalist" & old.ident %in% c("NE_1", "NE_2", "NE_3", "NE_4", "NE_5", "NE_6", "NE_7", "NE_8", "NE_9", "NE_10") ~ "Generalist NE",
+    archaetype == "Generalist" & old.ident  %in% c("Club cells_1", "Club cells_2", "AT2 cells", "Club cells_3", "Cilliated cells","Endothelial cells")  ~ "Generalist nonNE",
+    TRUE ~ archaetype
+  ))
+```
+
+```{r width = 3, fig.height = 4}
+#Chromatin heatmap
+Idents(TKO_final_arc) = "cell_type"
+DefaultAssay(TKO_final_arc) <- "peaks"
+
+#Importing differential peaks
+TKO_diff_peaks <- read_csv("/labs/julsage/Debbie/multiome_data/analysis_2/Tables/TKO_diff_peaks.csv") #Supplementary Table S4
+
+Peaks = AverageExpression(
+  TKO_final_arc,
+  assays = "peaks",
+  features = TKO_diff_peaks$gene,
+  return.seurat = TRUE,
+  group.by = "ident",
+  add.ident = NULL,
+  layer = "data",
+  verbose = TRUE)
+
+peaks_mat = as.matrix(Peaks@assays$peaks$data)
+
+library(circlize)
+col_fun = colorRamp2(c(-1.5,0, 1.5), c("#1f7bbb", "#f7f7f7","#b50c0c"))
+col_fun(seq(-1.5, 1.5))
+## [1] "#00FF00FF" "#00FF00FF" "#B1FF9AFF" "#FFFFFFFF" "#FF9E81FF" "#FF0000FF"
+## [7] "#FF0000FF"
+scaled_mat = t(scale(t(peaks_mat)))
+
+###Figure 3a
+Heatmap(scaled_mat, name = "mat",col = col_fun,show_row_names = FALSE,row_dend_reorder = TRUE, clustering_distance_columns  = "pearson", row_km = 2, color_space = "RGB")
+
+#generating consititutive peakset 
+# open in all <20% of all cell types
+
+assay_data    <- GetAssayData(TKO_final_arc, assay = "peaks", slot = "counts")
+cell_clusters <- Idents(TKO_final_arc)
+
+# Compute per-cluster fraction of cells with peak accessible
+pct_matrix <- sapply(levels(cell_clusters), function(cl) {
+  cells_in_cl <- names(cell_clusters)[cell_clusters == cl]
+  rowMeans(assay_data[, cells_in_cl] > 0)
+})
+
+# Peaks accessible in ≥20% of cells in EVERY cluster
+min_pct <- 0.20
+constitutive_peaks <- rownames(pct_matrix)[
+  apply(pct_matrix, 1, function(x) all(x >= min_pct))
+]
+
+Peaks_background = AverageExpression(
+  TKO_final_arc,
+  assays = "peaks",
+  features = constitutive_peaks,
+  return.seurat = TRUE,
+  group.by = "ident",
+  add.ident = NULL,
+  layer = "data",
+  verbose = TRUE)
+
+peaks_bg_mat = as.matrix(Peaks_background@assays$peaks$data)
+
+library(circlize)
+col_fun = colorRamp2(c(-1.5,0, 1.5), c("#1f7bbb", "#f7f7f7","#b50c0c"))
+col_fun(seq(-1.5, 1.5))
+## [1] "#00FF00FF" "#00FF00FF" "#B1FF9AFF" "#FFFFFFFF" "#FF9E81FF" "#FF0000FF"
+## [7] "#FF0000FF"
+scaled_bg_mat = t(scale(t(peaks_bg_mat)))
+
+###Extended Data Figure 7b
+Heatmap(scaled_bg_mat, name = "mat",col = col_fun,show_row_names = FALSE,row_dend_reorder = TRUE, clustering_distance_columns  = "pearson", row_km = 2, color_space = "RGB")
+
+```
+
+```{r width = 3, fig.height = 4}
+DefaultAssay(TKO_final_arc) <- "peaks"
+
+# ── Define ident_order FIRST before anything else ─────────────────────────────
+ident_order <- c("Neuroendocrine1", "Neuroendocrine2", "Stress",
+                 "Generalist NE", "Intermediate",
+                  "nonNE1", "nonNE2","Generalist nonNE"
+                )
+
+group_colors <- c(
+  "Neuroendocrine1"  = "#cb76da",
+  "Neuroendocrine2"  = "#a855b5",
+  "Generalist NE"    = "#2ecc71",
+  "Generalist nonNE" = "#f5d400",
+  "Intermediate"     = "#f5a623",
+  "nonNE1"           = "#f10c13",
+  "nonNE2"           = "#c00000",
+  "Stress"           = "#4a90d9"
+)
+
+# ── 1. Get top 50 peaks per archetype ─────────────────────────────────────────
+top_peaks <- TKO_diff_peaks %>%
+  group_by(cluster) %>%
+  arrange(desc(avg_log2FC)) %>%
+  slice_head(n = 50) %>%
+  ungroup()
+
+print(table(top_peaks$cluster))
+
+# ── 2. Scale in native assay order ────────────────────────────────────────────
+selected_peaks <- rownames(TKO_final_arc)[
+  rownames(TKO_final_arc) %in% top_peaks$gene
+]
+TKO_final_arc <- ScaleData(TKO_final_arc, features = selected_peaks, model.use = "poisson")
+
+# ── 3. Build peak_order and peak_ann_labels together ─────────────────────────
+peak_df <- top_peaks %>%
+  filter(gene %in% selected_peaks) %>%
+  mutate(cluster = factor(cluster, levels = ident_order)) %>%
+  arrange(cluster) %>%
+  distinct(gene, .keep_all = TRUE)
+
+peak_order      <- peak_df$gene
+peak_ann_labels <- as.character(peak_df$cluster)
+stopifnot(length(peak_order) == length(peak_ann_labels))
+
+# ── 4. Order cells — drop any cell_type NOT in ident_order ───────────────────
+cell_type_factor <- factor(TKO_final_arc$cell_type, levels = ident_order)
+cells_keep       <- colnames(TKO_final_arc)[!is.na(cell_type_factor)]
+cat("Dropped cells:", ncol(TKO_final_arc) - length(cells_keep), "\n")
+
+cell_type_factor  <- droplevels(cell_type_factor[!is.na(cell_type_factor)])
+cell_order        <- order(cell_type_factor)
+cells_ordered     <- cells_keep[cell_order]
+cell_types_ordered <- cell_type_factor[cell_order]   # ← defined here
+
+# ── 5. Extract and clip scaled matrix ─────────────────────────────────────────
+scaled_mat <- GetAssayData(TKO_final_arc, assay = "peaks", slot = "scale.data")
+scaled_mat <- as.matrix(scaled_mat[peak_order, cells_ordered])
+#scaled_mat[scaled_mat >  2] <-  2
+#scaled_mat[scaled_mat < -2] <- -2
+
+# ── 6. Annotations ────────────────────────────────────────────────────────────
+col_ann <- HeatmapAnnotation(
+  CellType = cell_types_ordered,
+  col      = list(CellType = group_colors),
+  show_annotation_name = FALSE
+)
+
+row_ann <- rowAnnotation(
+  Archetype = peak_ann_labels,
+  col       = list(Archetype = group_colors),
+  show_annotation_name = FALSE,
+  show_legend = FALSE
+)
+col_fun <- colorRamp2(c(-2.5, 0,1.5), c("#168082","white","#ED1F69"))
+
+###Extended Data Figure 7a
+Heatmap(
+  scaled_mat,
+  name              = "Z-score",
+  col =              col_fun,
+  cluster_rows      = FALSE,
+  cluster_columns   = FALSE,
+  show_row_names    = FALSE,
+  show_column_names = FALSE,
+  column_split      = cell_types_ordered,
+  row_gap = unit(0.5, "mm"),
+  column_gap =  unit(0.3, "mm"),
+  row_split         = factor(peak_ann_labels, levels = ident_order),
+  top_annotation    = col_ann,
+  column_title_rot  = 45,
+  use_raster        = TRUE
+)
+```
+
+```{r width = 12, fig.height = 5}
+
+Idents(TKO_final_arc) = "cell_type"
+
+DefaultAssay(TKO_final_arc) = "peaks"
+
+TKO_final_arc@active.ident <- factor(TKO_final_arc@active.ident, 
+                            levels=c("nonNE2","Generalist nonNE","nonNE1","Intermediate","Stress","Neuroendocrine2","Generalist NE",
+                              "Neuroendocrine1"))
+
+###Figure 3b
+Ascl1 = CoveragePlot(
+  object = TKO_final_arc,
+  region = "Ascl1",
+  extend.upstream = 2000,
+  extend.downstream = 2000,
+  ymax = 100) 
+
+Calca = CoveragePlot(
+  object = TKO_final_arc,
+  region = "Calca",
+  extend.upstream = 1000,
+  extend.downstream = 1000,
+  ymax = 40)
+
+Rest = CoveragePlot(
+  object = TKO_final_arc,
+  region = "chr5-77265000-77275000",
+  extend.upstream = 1000,
+  extend.downstream = 1000,
+  ymax = 40)
+
+
+Notch2 = CoveragePlot(
+  object = TKO_final_arc,
+  region = "chr3-98050000-98065000",
+  extend.upstream = 500,
+  extend.downstream = 500,
+  ymax = 35)
+
+
+Ascl1+Calca+Rest+Notch2 & scale_fill_manual(values = c("#f27a30","#ddd9d8","#f10c13","#4e8ee6","#3eab32","#8e403a","gray70","#cb76da"))
+```
+
+```{r width = 3, fig.height = 5}
+Idents(TKO_final_arc) = "cell_type"
+DefaultAssay(TKO_final_arc) = "SCT"
+
+genes = c("Tcf7l2","Stat1","Grhl2","Nfe2l2","Runx1","Hes1","Yap1","Rest","Jun","Fos","Etv4","Fosl2","Ets1","Cebpb","Foxa2","Myc","Sox2","Insm1","Sox11","Nfib","Meis2","Nfatc2","Tcf12","Tcf4","Sox6","Zeb1","Egr1","Rorb","Ascl1")
+
+TKO_final_arc@active.ident <- factor(TKO_final_arc@active.ident, 
+                            levels=c("Neuroendocrine1","Generalist NE","Neuroendocrine2","Stress","Intermediate","nonNE1","Generalist nonNE","nonNE2"))
+
+p1 = DotPlot(TKO_final_arc, features = genes, scale = TRUE, col.max = 2,col.min = -2,scale.max = 75, scale.by = "radius", idents = c("Neuroendocrine1", "Neuroendocrine2","Stress","Intermediate","nonNE1","nonNE2","Generalist NE","Generalist nonNE"), dot.min = 0,dot.scale = 5)+RotatedAxis() +coord_flip()+scale_color_gradient2(low = "#2166ac", mid = "#f7f7f7", high = "#b2182b")
+
+TF_RNA_dotplot = p1+theme(axis.text.x = element_text(angle = 45, size = 10), axis.text.y = element_text(size = 9),legend.text = element_text(size = 12), legend.title = element_text(size = 12)) +xlab("") +ylab("")
+
+###Figure 3e
+TF_RNA_dotplot
+
+DefaultAssay(TKO_final_arc) = "chromvar"
+
+motif.name <- ConvertMotifID(TKO_final_arc@assays$peaks@motifs@motif.names, name = c("TCF7L2","STAT1","GRHL2","NFE2L2","RUNX1","HES1","YAP1","JUN","FOS","ETV4","FOSL2","ETS1","CEBPB","FOXA2","MYC","SOX2","INSM1","SOX11","NFIB","MEIS2","NFATC2","TCF12","TCF4","SOX6","ZEB1","EGR1","RORB","ASCL1"))
+
+labels = c("TCF7L2","STAT1","GRHL2","NFE2L2","RUNX1","HES1","YAP1","JUN","FOS","ETV4","FOSL2","ETS1","CEBPB","FOXA2","MYC","SOX2","INSM1","SOX11","NFIB","MEIS2","NFATC2","TCF12","TCF4","SOX6","ZEB1","EGR1","RORB","ASCL1")
+
+#replace NA with correct motif name
+motif.name[4] = "MA0150.2"
+motif.name[7] = "MA0090.3"
+motif.name[18] ="MA0869.1"
+motif.name[22] = "MA0521.1"
+motif.name[24] = "MA0515.1"
+
+P2= DotPlot(TKO_final_arc, features = c(motif.name), scale = TRUE, col.max = 2,col.min = -2,scale.max = 75, scale.by = "radius", dot.min = 0,dot.scale = 5)+RotatedAxis() +coord_flip()+scale_color_gradient2(low = "#7e410f", mid = "#f7f7f7", high = "#42106e")
+
+P2$data$features.plot = factor(P2$data$features.plot, 
+                                      levels = motif.name, 
+                                      labels = labels)
+
+TF_motif_dotplot = P2+theme(axis.text.x = element_text(angle = 45, size = 10), axis.text.y = element_text(size = 9),legend.text = element_text(size = 12), legend.title = element_text(size = 12))+xlab("") +ylab("")
+
+###Figure 3d
+TF_motif_dotplot
+```
+
+```{r width = 4, fig.height = 5}
+
+#correlation between gene activity and gene expression
+Arc_marker_genes <- read_csv("/labs/julsage/Debbie/multiome_data/analysis_2/Arc.marker_genes.csv")
+
+marker_genes = AverageExpression(
+  TKO_final_arc,
+  assays = "SCT",
+  features = Arc_marker_genes$gene,
+  return.seurat = TRUE,
+  group.by = "cell_type",
+  add.ident = NULL,
+  layer =  "counts",
+  verbose = TRUE)
+
+marker_genes_mat = as.data.frame(marker_genes@assays$SCT$data)
+
+marker_genes_mat = scale(t(marker_genes_mat))
+marker_genes_mat = t(marker_genes_mat)
+
+
+marker_activity= AverageExpression(
+  TKO_final_arc,
+  assays = "gene_activity",
+  features = Arc_marker_genes$gene,
+  return.seurat = TRUE,
+  group.by = "cell_type",
+  add.ident = NULL,
+  layer = "data",
+  verbose = TRUE)
+
+marker_activity_mat = as.data.frame(marker_activity@assays$gene_activity$data)
+
+marker_genes_mat = subset(marker_genes_mat, rownames(marker_genes_mat) %in% rownames(marker_activity_mat))
+
+marker_activity_mat = scale(t(marker_activity_mat))
+marker_activity_mat = t(marker_activity_mat)
+colnames(marker_activity_mat) = c("Generalist NE_A","Generalist nonNE_A","Intermediate_A","Neuroendocrine1_A","Neuroendocrine2_A","nonNE1_A","nonNE2_A","Stress_A")
+
+res <- rcorr(as.matrix(cbind(marker_genes_mat, marker_activity_mat)), type = "pearson")
+# Extract only between-matrix correlations
+n1 <- ncol(marker_genes_mat)
+n2 <- ncol(marker_activity_mat)
+corr_between <- res$r[1:n1, (n1+1):(n1+n2)]
+p_between <- res$P[1:n1, (n1+1):(n1+n2)]
+
+###Figure 3c
+# Plot only cross-matrix correlations
+corrplot(corr_between,
+         is.corr = FALSE,          # since not a symmetric correlation matrix
+         method = 'square',
+         col = rev(brewer.pal(10, 'RdBu')),
+         tl.col = 'black',
+         p.mat = p_between,
+         sig.level = 0.01,
+         type = "lower",
+         ,col.lim = c(-1, 1),
+         addCoef.col = "black",   # add correlation values as text
+         number.cex = 0.6,        # adjust text size
+         number.digits = 2)
+
+
+```
+
+```{r}
+# Fixed version - handles empty counts layer
+calculate_chromatin_entropy <- function(signac_obj,
+                                       atac_assay = "ATAC",
+                                       use_variable_peaks = TRUE,
+                                       n_peaks = 5000) {
+  
+  # Set the default assay
+  DefaultAssay(signac_obj) <- atac_assay
+  
+  peak_matrix <- GetAssayData(signac_obj, assay = atac_assay, layer = "data")
+  
+  if (use_variable_peaks) {
+    # Check if variable features already exist
+    var_peaks <- VariableFeatures(signac_obj)
+    
+    if (length(var_peaks) == 0) {
+      print("No variable features found. Computing variable features...")
+      
+      # Check if counts layer has data
+      counts_data <- GetAssayData(signac_obj, assay = atac_assay, layer = "data")
+      
+      if (length(counts_data) == 0 || sum(counts_data) == 0) {
+        # Counts layer is empty - use data layer instead
+        print("Counts layer empty. Using data layer for feature selection...")
+        
+        # Calculate variance across cells for each peak
+        peak_vars <- Matrix::rowVars(peak_matrix)
+        names(peak_vars) <- rownames(peak_matrix)
+        
+        # Sort by variance and take top peaks
+        var_peaks <- names(sort(peak_vars, decreasing = TRUE))
+        
+        print(paste("Selected", length(var_peaks), "peaks by variance"))
+        
+      } else {
+        # Counts layer has data - use FindTopFeatures
+        signac_obj <- FindTopFeatures(signac_obj, 
+                                      assay = atac_assay,
+                                      min.cutoff = 'q5')
+        var_peaks <- VariableFeatures(signac_obj)
+        print(paste("Found", length(var_peaks), "variable features"))
+      }
+    }
+    
+    # Subset to variable peaks
+    var_peaks <- var_peaks[var_peaks %in% rownames(peak_matrix)]
+    peak_matrix <- peak_matrix[head(var_peaks, n_peaks), ]
+    
+    print(paste("Using", nrow(peak_matrix), "variable peaks for entropy calculation"))
+  }
+  
+  # Calculate entropy for each cell
+  print("Calculating entropy scores...")
+  entropy_scores <- apply(peak_matrix, 2, function(cell_peaks) {
+    # Normalize to probabilities
+    cell_peaks_sum <- sum(cell_peaks)
+    
+    if (cell_peaks_sum == 0) {
+      return(0)  # Handle cells with no accessibility
+    }
+    
+    cell_peaks <- cell_peaks / cell_peaks_sum
+    cell_peaks <- cell_peaks[cell_peaks > 0]
+    
+    # Shannon entropy
+    -sum(cell_peaks * log(cell_peaks))
+  })
+  
+  # Normalize to 0-1
+  entropy_norm <- (entropy_scores - min(entropy_scores)) / 
+                  (max(entropy_scores) - min(entropy_scores))
+  
+  # Add to metadata
+  signac_obj$chromatin_entropy <- entropy_scores
+  signac_obj$chromatin_entropy_norm <- entropy_norm
+  
+  print("\nDone!")
+  print(paste("Entropy range:", 
+              round(min(entropy_scores), 3), "-", 
+              round(max(entropy_scores), 3)))
+  
+  return(signac_obj)
+}
+
+# Run with your object
+TKO_final_arc <- calculate_chromatin_entropy(
+  signac_obj = TKO_final_arc,
+  atac_assay = "peaks",  # Your ATAC assay name
+  use_variable_peaks = TRUE,
+  n_peaks = 5000
+)
+
+```
+
+```{r}
+# Function to prepare marker genes from your differential genes dataframe
+prepare_marker_genes <- function(genes_df, 
+                                 gene_col = "gene",      # column with gene names
+                                 state_col = "cluster") { # column with cell state
+  
+  print(paste("Processing", nrow(genes_df), "pre-filtered differential genes"))
+  
+  # Split into list by cell state
+  markers_list <- split(genes_df[[gene_col]], genes_df[[state_col]])
+  
+  # Print summary
+  print("\nGenes per state:")
+  for (state in names(markers_list)) {
+    print(paste("  ", state, ":", length(markers_list[[state]]), "genes"))
+  }
+  
+  # Get unique genes across all states
+  all_genes <- unique(genes_df[[gene_col]])
+  print(paste("\nTotal unique genes:", length(all_genes)))
+  
+  return(list(
+    by_state = markers_list,
+    all_genes = all_genes
+  ))
+}
+
+# Modified decorrelation function with pre-computed markers
+calculate_activity_expression_coupling <- function(signac_obj,
+                                                   rna_assay = "RNA",
+                                                   gene_activity_assay = "GeneActivity",
+                                                   precomputed_markers = NULL,  # NEW: accepts prepared markers
+                                                   use_state_specific = FALSE) { # NEW: option for analysis type
+  
+  # Get marker genes
+  if (is.null(precomputed_markers)) {
+    stop("Please provide precomputed_markers from prepare_marker_genes()")
+  }
+  
+  if (use_state_specific) {
+    # Use state-specific markers (provided as list)
+    if (!is.list(precomputed_markers$by_state)) {
+      stop("For state_specific analysis, provide output from prepare_marker_genes()")
+    }
+    marker_genes_list <- precomputed_markers$by_state
+    analysis_type <- "state-specific"
+  } else {
+    # Use all unique marker genes
+    marker_genes <- precomputed_markers$all_genes
+    analysis_type <- "all markers"
+  }
+  
+  print(paste("Calculating activity-expression coupling using", analysis_type))
+  
+  # Extract expression and activity data
+  expr <- GetAssayData(signac_obj, assay = rna_assay, layer = "data")
+  activity <- GetAssayData(signac_obj, assay = gene_activity_assay, layer = "data")
+  
+  if (!use_state_specific) {
+    # Analysis across all marker genes
+    common_genes <- intersect(marker_genes, intersect(rownames(expr), rownames(activity)))
+    print(paste("Using", length(common_genes), "common marker genes"))
+    
+    if (length(common_genes) < 50) {
+      warning("Very few common genes found. Check gene names match between assays.")
+    }
+    
+    expr <- expr[common_genes, ]
+    activity <- activity[common_genes, ]
+    
+    # Calculate per-cell correlation
+    print("Computing per-cell correlations...")
+    coupling_scores <- sapply(colnames(expr), function(cell) {
+      cor(as.numeric(expr[, cell]), 
+          as.numeric(activity[, cell]),
+          method = "spearman")
+    })
+    
+    # Handle NAs
+    coupling_scores[is.na(coupling_scores)] <- 0
+    
+    # Invert so high score = high plasticity (low coupling)
+    plasticity_from_decoupling <- 1 - coupling_scores
+    
+    signac_obj$activity_expression_coupling <- coupling_scores
+    signac_obj$plasticity_decoupling <- plasticity_from_decoupling
+    
+    print("\nDone!")
+    print(paste("Mean coupling:", round(mean(coupling_scores), 3)))
+    print(paste("Mean plasticity (decoupling):", round(mean(plasticity_from_decoupling), 3)))
+    
+  } else {
+    # State-specific analysis: calculate coupling using each state's markers
+    print("Computing state-specific correlations for each cell...")
+    
+    cell_states <- unique(signac_obj@meta.data[[names(marker_genes_list)[1]]])
+    
+    # For each cell, calculate correlation using its own state's markers
+    coupling_scores <- numeric(ncol(expr))
+    names(coupling_scores) <- colnames(expr)
+    
+    # Get cell state assignments
+    if ("cell_type" %in% colnames(signac_obj@meta.data)) {
+      cell_state_col <- "cell_type"
+    } else if ("celltype" %in% colnames(signac_obj@meta.data)) {
+      cell_state_col <- "celltype"
+    } else {
+      stop("Cannot find cell state column. Please specify.")
+    }
+    
+    cell_assignments <- signac_obj@meta.data[[cell_state_col]]
+    
+    for (state in names(marker_genes_list)) {
+      state_cells <- which(cell_assignments == state)
+      state_genes <- marker_genes_list[[state]]
+      
+      # Find common genes for this state
+      common_genes <- intersect(state_genes, intersect(rownames(expr), rownames(activity)))
+      
+      if (length(common_genes) < 10) {
+        warning(paste("Very few genes for state", state, "- skipping"))
+        next
+      }
+      
+      expr_state <- expr[common_genes, state_cells, drop = FALSE]
+      activity_state <- activity[common_genes, state_cells, drop = FALSE]
+      
+      # Calculate correlation for each cell in this state
+      for (cell in colnames(expr_state)) {
+        coupling_scores[cell] <- cor(as.numeric(expr_state[, cell]),
+                                     as.numeric(activity_state[, cell]),
+                                     method = "spearman")
+      }
+    }
+    
+    coupling_scores[is.na(coupling_scores)] <- 0
+    plasticity_from_decoupling <- 1 - coupling_scores
+    
+    signac_obj$activity_expression_coupling_statespecific <- coupling_scores
+    signac_obj$plasticity_decoupling_statespecific <- plasticity_from_decoupling
+    
+    print("\nDone!")
+    print(paste("Mean coupling:", round(mean(coupling_scores), 3)))
+    print(paste("Mean plasticity (decoupling):", round(mean(plasticity_from_decoupling), 3)))
+  }
+  
+  # Summary by cell type if available
+  if ("cell_type" %in% colnames(signac_obj@meta.data) | 
+      "celltype" %in% colnames(signac_obj@meta.data)) {
+    
+    cell_col <- ifelse("cell_type" %in% colnames(signac_obj@meta.data), 
+                      "cell_type", "celltype")
+    
+    print("\nCoupling by cell state:")
+    coupling_by_state <- aggregate(coupling_scores ~ signac_obj@meta.data[[cell_col]], 
+                                   FUN = mean)
+    colnames(coupling_by_state) <- c("State", "Mean_Coupling")
+    coupling_by_state <- coupling_by_state[order(coupling_by_state$Mean_Coupling), ]
+    print(coupling_by_state, row.names = FALSE)
+    
+    print("\nPlasticity (decoupling) by cell state:")
+    plasticity_by_state <- aggregate(plasticity_from_decoupling ~ signac_obj@meta.data[[cell_col]], 
+                                    FUN = mean)
+    colnames(plasticity_by_state) <- c("State", "Mean_Plasticity")
+    plasticity_by_state <- plasticity_by_state[order(plasticity_by_state$Mean_Plasticity, 
+                                                      decreasing = TRUE), ]
+    print(plasticity_by_state, row.names = FALSE)
+  }
+  
+  return(signac_obj)
+}
+#USAGE
+markers_genes <- prepare_marker_genes(
+  genes_df = Arc_marker_genes,
+  gene_col = "gene",        # YOUR gene column name
+  state_col = "cluster"     # YOUR cell state column name
+)
+
+# Calculate coupling using ALL marker genes
+# This measures overall correlation between gene activity and expression
+TKO_final_arc <- calculate_activity_expression_coupling(
+  signac_obj = TKO_final_arc,
+  rna_assay = "decontXcounts",
+  gene_activity_assay = "gene_activity",
+  precomputed_markers = markers_genes,
+  use_state_specific = FALSE  # Use all genes
+)
+
+# Create composite plasticity score
+TKO_final_arc$plasticity_composite <- 
+  scale(TKO_final_arc$chromatin_entropy_norm) +
+  scale(TKO_final_arc$plasticity_decoupling)
+```
+
+```{r width = 3, fig.height = 5}
+plot_df <- TKO_final_arc@meta.data %>%
+  filter(!cell_type %in% c("Generalist NE", "Generalist nonNE")) %>%
+  mutate(
+    plot_group = case_when(
+      cell_type == "Intermediate"                              ~ "Intermediate",
+      TRUE                                                     ~ "Other"
+    ),
+    plot_order = case_when(
+      plot_group == "Other"        ~ 1,
+      plot_group == "Intermediate" ~ 2
+    )
+  ) %>%
+  arrange(plot_order) %>%
+  mutate(plot_group = factor(plot_group, levels = c("Other","Intermediate")))
+
+
+###Figure 3c
+ggplot(plot_df, aes(x = as.numeric(scale(chromatin_entropy)), 
+                    y = as.numeric(scale(plasticity_decoupling)),
+                    color = plot_group, size = plot_group)) +
+
+  geom_hline(yintercept = 0, color = "black", linewidth = 0.4, linetype = "dashed") +
+  geom_vline(xintercept = 0, color = "black", linewidth = 0.4, linetype = "dashed") +
+
+  geom_point(alpha = 0.5) +
+
+
+
+  scale_color_manual(values = c("Other"        = "grey80",
+                                 "NE"           = "grey80",
+                                 "Intermediate" = "#2166ac"),
+                     name   = "") +
+  scale_size_manual(values  = c("Other"        = 0.8,
+                                 "NE"           = 1.0,
+                                 "Intermediate" = 1.2),
+                    guide   = "none") +
+
+  guides(color = guide_legend(override.aes = list(size = 3, alpha = 1))) +
+
+  labs(
+    x     = "Chromatin entropy",
+    y     = "Gene-activity expression decoupling",
+    title = "Chromatin entropy vs decoupling"
+  ) +
+
+  theme_classic(base_size = 13) +
+  theme(
+    plot.title      = element_text(face = "bold"),
+    legend.position = "right"
+  )
+
+```
+
+```{r}
+library(rstatix)
+library(ggplot2)
+library(dplyr)
+library(effsize)
+
+make_violin_multigroup <- function(data, score_col, y_label,
+                                   group_col = "cell_type",
+                                   ref_group  = "Intermediate",
+                                   colors     = c("Neuroendocrine1" = "#cb76da",
+                                                  "Neuroendocrine2" = "#8e403a",
+                                                  "Stress"          = "#3eab32",
+                                                  "Generalist NE"  = "gray50",
+                                                  "Intermediate"    = "#4e8ee6",
+                                                  "nonNE1"          = "#f10c13",
+                                                  "nonNE2"          = "#f27a30",
+                                                  "Generalist nonNE" = "gray70")) {
+
+  # Pairwise Wilcoxon vs ref_group + BH correction
+  pair_res <- data %>%
+    rstatix::pairwise_wilcox_test(
+      as.formula(paste(score_col, "~", group_col)),
+      ref.group       = ref_group,
+      p.adjust.method = "BH"
+    ) %>%
+    filter(group1 == ref_group | group2 == ref_group) %>%
+    mutate(other = ifelse(group1 == ref_group, group2, group1))
+
+  # Cliff's delta vs ref_group
+  cd_res <- lapply(pair_res$other, function(ct) {
+    x <- data[[score_col]][data[[group_col]] == ref_group]
+    y <- data[[score_col]][data[[group_col]] == ct]
+    cd <- cliff.delta(y, x)
+    data.frame(other     = ct,
+               delta     = round(as.numeric(cd$estimate), 3),
+               magnitude = as.character(cd$magnitude))
+  }) %>% bind_rows()
+
+  pair_res <- pair_res %>%
+    left_join(cd_res, by = "other") %>%
+    mutate(
+      label     = paste0("δ=", delta, " (", magnitude, ")\nFDR=",
+                         formatC(p.adj, format = "e", digits = 2)),
+      cell_type = other
+    ) %>%
+    left_join(
+      data %>% dplyr::group_by(.data[[group_col]]) %>%
+        dplyr::summarize(y_annot = max(.data[[score_col]], na.rm=TRUE) * 1.05,
+                         .groups = "drop") %>%
+        dplyr::rename(cell_type = all_of(group_col)),
+      by = "cell_type"
+    )
+
+  ggplot(data, aes(x = .data[[group_col]],
+                   y = .data[[score_col]],
+                   fill = .data[[group_col]])) +
+    geom_violin(width = 0.7, scale = "width", trim = FALSE) +
+    geom_boxplot(notch = TRUE, width = 0.25, color = "black",
+                 alpha = 0.5, size = 0.5, lwd = 0.5) +
+    geom_text(data = pair_res,
+              aes(x = cell_type, y = y_annot, label = label),
+              inherit.aes = FALSE,
+              size = 3.2, vjust = 0, lineheight = 0.9) +
+    scale_fill_manual(values = colors) +
+    scale_y_continuous(expand = expansion(mult = c(0.05, 0.22))) +
+    theme_classic() +
+    xlab("") +
+    ylab(y_label) +
+    theme(legend.position  = "none",
+          text             = element_text(size = 13),
+          axis.text.x      = element_text(angle = 45, hjust = 1))
+}
+
+###Extended Data Figure 7c
+epigenetic_plasticity_score = make_violin_multigroup(
+  data      = TKO_final_arc@meta.data %>%
+                filter(!cell_type %in% c("Generalist NE","Generalist nonNE"))%>%
+mutate(cell_type = factor(cell_type, levels = c("Neuroendocrine1","Neuroendocrine2","Stress","Intermediate","nonNE1","nonNE2"))),
+  score_col = "plasticity_composite",
+  y_label   = "Epigenetic Plasticity score",
+  ref_group = "Intermediate"
+)
+
+epigenetic_plasticity_score
+```
+
