@@ -31,7 +31,7 @@ This repository contains the code used to reproduce the analyses and figures fro
   - `02.RPM-RPMA_dataset_reanalysis_Fig2.rmd`
     - R Markdown analysis of the RPM-RPMA dataset for Figure 2 and Extended Data Figure 5.
 
-
+Tutorials and codes associated with running Boba-T can be found here:https://github.com/smgroves/BooleaBayes/tree/main
 
 ## Dependencies
 
@@ -40,17 +40,10 @@ This repository does not include an explicit dependency specification file. Some
 - Python: `pandas`, `numpy`, `networkx`, `matplotlib`, `seaborn`, `bobaT`, `graph_tool`, `scikit-learn`, `arboreto`, `json`, `glob`
 - R: `Seurat`, `Signac`, `ggplot2`, `dplyr`, `readxl`, `reshape2`, `tidyverse`, `MuDataSeurat`, `pheatmap`, `effsize`, `EnhancedVolcano`, `msigdbr`, `homologene`, `viridis`, `Hmisc`, `patchwork`, `corrplot`
 
-## Reproducing the analyses
-
-1. Open the Jupyter notebooks in `archetype_analysis/` to run preprocessing and archetype workflows.
-2. Open the R Markdown files in `scMultiomics analysis/` to generate figures and run multi-omics scoring.
-3. Run the Python scripts in `network_analysis/` to rebuild networks and perform Boolean network analysis.
-
-
 ## Notes
 
 - The repository contains only analysis code and manuscript material; raw data are not included.
-- The attached PDF manuscript documents the biological context and results for this work.
+- The tutorial and demo dataset for running Boba-T is located at the BooleanBayes repository. The network analysis code here is the exact code run for the manuscript figures.
 -  The scripts are configured with local paths and analysis parameters; these should be reviewed before rerunning. 
 
 
