@@ -31,7 +31,7 @@ This repository contains the code used to reproduce the analyses and figures fro
   - `02.RPM-RPMA_dataset_reanalysis_Fig2.rmd`
     - R Markdown analysis of the RPM-RPMA dataset for Figure 2 and Extended Data Figure 5.
 
-Tutorials and codes associated with running Boba-T can be found here:https://github.com/smgroves/BooleaBayes/tree/main
+Tutorials and codes associated with running Boba-T can be found here:https://github.com/smgroves/BoBa-T
 
 ## Dependencies
 
